@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pollutieroos — Luchtkwaliteit</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --border:  #30363d;
+      --accent:  #58a6ff;
+      --green:   #3fb950;
+      --warn:    #f0883e;
+      --text:    #e6edf3;
+      --muted:   #8b949e;
+      --radius:  8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo {
+      font-family: 'Space Mono', monospace;
+      font-size: 1rem;
+      color: var(--accent);
+    }
+    .logo span { color: var(--muted); font-size: 0.75rem; margin-left: 0.75rem; font-family: 'DM Sans', sans-serif; }
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 270px 1fr;
+    }
+    aside {
+      border-right: 1px solid var(--border);
+      padding: 1.25rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      overflow-y: auto;
+    }
+    .cg label {
+      display: block;
+      font-size: 0.68rem;
+      font-family: 'Space Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    select, input[type="date"] {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 0.48rem 0.7rem;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.88rem;
+      appearance: none;
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+    select:focus, input[type="date"]:focus,
+    select:hover, input[type="date"]:hover {
+      border-color: var(--accent); outline: none;
+    }
+    .date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+    .date-row .sublabel {
+      font-size: 0.65rem; color: var(--muted);
+      font-family: 'Space Mono', monospace;
+      margin-bottom: 0.2rem; display: block;
+    }
+    .btn {
+      width: 100%;
+      padding: 0.6rem;
+      border: none; border-radius: var(--radius);
+      background: var(--accent);
+      color: #0d1117;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.82rem; font-weight: 700;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      letter-spacing: 0.02em;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-ghost {
+      background: transparent;
+      border: 1px dashed var(--border);
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 400;
+      font-size: 0.8rem;
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: transparent; }
+    hr { border: none; border-top: 1px solid var(--border); }
+    .stat-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.7rem 0.9rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+    .stat-box strong { color: var(--text); }
+    .stat-box .accent { color: var(--accent); }
+
+    /* chart panel */
+    .chart-panel {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 1.5rem 1.5rem 1rem;
+      gap: 0.5rem;
+    }
+    #chart-title {
+      font-family: 'Space Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--accent);
+      text-align: center;
+      min-height: 1.2rem;
+    }
+    #plotly-chart {
+      width: 100%;
+      max-width: 700px;
+      height: 600px;
+      display: none;
+    }
+    #status {
+      color: var(--muted);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 4rem 2rem;
+      line-height: 1.7;
+    }
+    #loading {
+      display: none;
+      align-items: center;
+      gap: 0.6rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      padding: 4rem;
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #wind-info {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-align: center;
+      max-width: 620px;
+      line-height: 1.6;
+    }
+    #file-input { display: none; }
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 0.5rem 1.5rem;
+      font-size: 0.7rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    @media (max-width: 680px) {
+      main { grid-template-columns: 1fr; }
+      aside { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">◎ Pollutieroos <span>luchtkwaliteit uurgemiddelden</span></div>
+</header>
+
+<main>
+  <aside>
+
+    <div class="cg">
+      <label>Meetstation</label>
+      <select id="sel-station"></select>
+    </div>
+
+    <div class="cg">
+      <label>Component</label>
+      <select id="sel-component"></select>
+    </div>
+
+    <div class="cg">
+      <label>Windstation</label>
+      <select id="sel-wind">
+        <option value="240_wind_gr">Schiphol (240)</option>
+        <option value="225_wind_gr">IJmuiden (225)</option>
+      </select>
+    </div>
+
+    <div class="cg">
+      <label>Datumbereik</label>
+      <div class="date-row">
+        <div>
+          <span class="sublabel">Van</span>
+          <input type="date" id="date-from" />
+        </div>
+        <div>
+          <span class="sublabel">Tot</span>
+          <input type="date" id="date-to" />
+        </div>
+      </div>
+    </div>
+
+    <div class="cg">
+      <label>Sectorbreedte</label>
+      <select id="sel-sectors">
+        <option value="16">22.5° — 16 sectoren</option>
+        <option value="8" selected>45° — 8 sectoren</option>
+        <option value="4">90° — 4 sectoren</option>
+      </select>
+    </div>
+
+    <button class="btn" id="btn-plot">▶ Teken pollutieroos</button>
+
+    <hr />
+
+    <div class="cg">
+      <label>Dataset vervangen</label>
+      <button class="btn btn-ghost" onclick="document.getElementById('file-input').click()">
+        📂 Upload CSV-bestand
+      </button>
+      <input type="file" id="file-input" accept=".csv" />
+    </div>
+
+    <hr />
+
+    <div class="stat-box" id="stat-box">Dataset wordt geladen…</div>
+
+  </aside>
+
+  <div class="chart-panel">
+    <div id="chart-title"></div>
+    <div id="status">⟵ Kies een station en component en klik op "Teken pollutieroos"</div>
+    <div id="loading"><span class="spinner"></span>&nbsp;Berekenen…</div>
+    <div id="plotly-chart"></div>
+    <div id="wind-info"></div>
+  </div>
+</main>
+
+<footer>
+  Windrichting 990° = windstil / variabel wind — deze uren worden uitgesloten van de pollutieroos
+</footer>
+
+<script>
+// ── LOOKUP TABLES ─────────────────────────────────────────────────────────────
+const COMP_DISPLAY = {
+  PM10:'PM10', PM25:'PM2.5', MH:'Massa Houtrook', BC:'BC (roet)',
+  UFP:'UFP (ultrafijn stof)', NAF:'Naftaleen', BEN:'Benzeen',
+  TOL:'Tolueen', XYL:'Xyleen', H2S:'H2S', SO2:'SO2',
+  CO:'CO', NO2:'NO₂', NO:'NO', O3:'O₃'
+};
+
+const STATION_NAMES = {
+  '002':'Haarlemmerweg',       '003':'Nieuwendammerdijk',
+  '007':'A10-West',            '012':'Van Diemenstraat',
+  '014':'Vondelpark',          '016':'Westerpark',
+  '017':'Stadhouderskade',     '019':'Oudeschans',
+  '020':'Jan van Galenstraat', '021':'Kantershof',
+  '022':'Sportpark Ookmeer',   '546':'Hemkade',
+  '551':'IJmuiden',            '553':'Wijk aan Zee, de Banjaert',
+  '556':'de Rijp',             '557':'Wijk aan Zee, Bosweg',
+  '561':'Badhoevedorp',        '564':'Hoofddorp',
+  '565':'Oude Meer',           '570':'Beverwijk',
+  '572':'Velsen, Staalstraat', '573':'Velsen, Reyndersweg',
+  '701':'Zaandam',             '703':'Spaarnwoude',
+  '704':'Hoogtij',             '680':'Almere',
+  '980':'Baamsum'
+};
+
+// Cardinal labels for 16-sector (22.5°) resolution
+const CARDINALS_16 = {
+    0:'N', 22.5:'NNO', 45:'NO', 67.5:'ONO',
+    90:'O', 112.5:'OZO', 135:'ZO', 157.5:'ZZO',
+    180:'Z', 202.5:'ZZW', 225:'ZW', 247.5:'WZW',
+    270:'W', 292.5:'WNW', 315:'NW', 337.5:'NNW'
+};
+const CARDINALS_8 = { 0:'N', 45:'NO', 90:'O', 135:'ZO', 180:'Z', 225:'ZW', 270:'W', 315:'NW' };
+const CARDINALS_4 = { 0:'N', 90:'O', 180:'Z', 270:'W' };
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let parsedData = [];
+let availableCombos = {};   // { stationCode: Set<compCode> }
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('btn-plot').addEventListener('click', drawRose);
+  document.getElementById('file-input').addEventListener('change', handleUpload);
+  document.getElementById('sel-station').addEventListener('change', updateComponents);
+  loadDefaultCSV();
+});
+
+// ── CSV LOADING ───────────────────────────────────────────────────────────────
+function loadDefaultCSV() {
+  setStatus('Dataset laden via data/luchtkwaliteit.csv …');
+  Papa.parse('data/luchtkwaliteit.csv', {
+    download: true,
+    header: true,
+    dynamicTyping: true,
+    skipEmptyLines: true,
+    complete: r => processData(r.data),
+    error: () => setStatus(
+      '⚠️ Geen dataset gevonden op <code>data/luchtkwaliteit.csv</code>.\n' +
+      'Upload een CSV-bestand via de knop hieronder, of voeg het toe aan de repo.'
+    )
+  });
+}
+
+function handleUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  setStatus(`Laden: ${file.name} …`);
+  Papa.parse(file, {
+    header: true,
+    dynamicTyping: true,
+    skipEmptyLines: true,
+    complete: r => processData(r.data),
+    error: () => setStatus('⚠️ Fout bij lezen van CSV.')
+  });
+}
+
+// ── PROCESS ───────────────────────────────────────────────────────────────────
+function processData(rows) {
+  parsedData = rows;
+  availableCombos = {};
+
+  const headers = Object.keys(rows[0] || {});
+  headers.forEach(col => {
+    // Columns are formatted as COMP_STATIONCODE, e.g. NO2_003
+    const m = col.match(/^([A-Za-z0-9]+)_(\d{3})$/);
+    if (!m) return;
+    const [, comp, stn] = m;
+    if (!availableCombos[stn]) availableCombos[stn] = new Set();
+    availableCombos[stn].add(comp);
+  });
+
+  // Set date range from data
+  const dates = rows.map(r => (r.datum || '').substring(0, 10)).filter(Boolean).sort();
+  if (dates.length) {
+    document.getElementById('date-from').value = dates[0];
+    document.getElementById('date-to').value   = dates[dates.length - 1];
+  }
+
+  buildStationSelect();
+
+  const stCount = Object.keys(availableCombos).length;
+  document.getElementById('stat-box').innerHTML =
+    `<strong>${rows.length.toLocaleString('nl-NL')}</strong> uurwaarden geladen<br>
+     <strong>${stCount}</strong> meetstations beschikbaar<br>
+     Periode: <strong>${dates[0]}</strong> – <strong>${dates[dates.length-1]}</strong>`;
+
+  setStatus('✓ Dataset geladen — kies een station en component');
+}
+
+// ── SELECTS ───────────────────────────────────────────────────────────────────
+function buildStationSelect() {
+  const sel = document.getElementById('sel-station');
+  sel.innerHTML = '';
+  Object.keys(availableCombos).sort().forEach(code => {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = `${STATION_NAMES[code] || code} (${code})`;
+    sel.appendChild(opt);
+  });
+  updateComponents();
+}
+
+function updateComponents() {
+  const stn  = document.getElementById('sel-station').value;
+  const comps = availableCombos[stn] || new Set();
+  const sel  = document.getElementById('sel-component');
+  sel.innerHTML = '';
+  [...comps].sort().forEach(code => {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = COMP_DISPLAY[code] ? `${COMP_DISPLAY[code]} (${code})` : code;
+    sel.appendChild(opt);
+  });
+}
+
+// ── DRAW ──────────────────────────────────────────────────────────────────────
+function drawRose() {
+  if (!parsedData.length) { alert('Geen dataset geladen.'); return; }
+
+  const stn      = document.getElementById('sel-station').value;
+  const comp     = document.getElementById('sel-component').value;
+  const windCol  = document.getElementById('sel-wind').value;
+  const nSect    = parseInt(document.getElementById('sel-sectors').value);
+  const dateFrom = document.getElementById('date-from').value;
+  const dateTo   = document.getElementById('date-to').value;
+  const colName  = `${comp}_${stn}`;
+
+  showLoading(true);
+  setTimeout(() => {
+    try {
+      const result = computeRose(colName, windCol, nSect, dateFrom, dateTo);
+      renderPlot(result, stn, comp, windCol, nSect, dateFrom, dateTo);
+    } catch(err) {
+      setStatus('⚠️ Fout: ' + err.message);
+    }
+    showLoading(false);
+  }, 30);
+}
+
+// ── COMPUTE ───────────────────────────────────────────────────────────────────
+function computeRose(colName, windCol, nSect, dateFrom, dateTo) {
+  const sectDeg = 360 / nSect;
+  const sums    = new Float64Array(nSect);
+  const counts  = new Int32Array(nSect);
+  let used = 0, skipped = 0;
+
+  const fromMs = dateFrom ? +new Date(dateFrom) : -Infinity;
+  const toMs   = dateTo   ? +new Date(dateTo + 'T23:59:59') : Infinity;
+
+  for (const row of parsedData) {
+    // Filter by date
+    const d = row.datum || '';
+    if (d) {
+      const ms = +new Date(d);
+      if (ms < fromMs || ms > toMs) continue;
+    }
+
+    const val  = parseFloat(row[colName]);
+    const wind = parseFloat(row[windCol]);
+
+    if (isNaN(val) || val < 0) { skipped++; continue; }
+    if (isNaN(wind) || wind < 0 || wind === 990 || wind > 360) { skipped++; continue; }
+
+    const w = wind === 360 ? 0 : wind;
+    let idx = Math.floor((w / 360) * nSect);
+    if (idx >= nSect) idx = 0;
+
+    sums[idx]   += val;
+    counts[idx] += 1;
+    used++;
+  }
+
+  // Sector centre angles (for Plotly theta)
+  const thetas = Array.from({length: nSect}, (_, i) => i * sectDeg + sectDeg / 2);
+  const means  = thetas.map((_, i) => counts[i] > 0 ? sums[i] / counts[i] : 0);
+
+  return { thetas, means, counts: Array.from(counts), sectDeg, used, skipped };
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function renderPlot(data, stn, comp, windCol, nSect, dateFrom, dateTo) {
+  const stName   = STATION_NAMES[stn] || stn;
+  const compName = COMP_DISPLAY[comp] || comp;
+  const windName = windCol === '240_wind_gr' ? 'Schiphol (240)' : 'IJmuiden (225)';
+
+  // Choose cardinal label map
+  const cmap = nSect === 16 ? CARDINALS_16 : nSect === 8 ? CARDINALS_8 : CARDINALS_4;
+  const sectDeg = 360 / nSect;
+
+  const labels = data.thetas.map(theta => {
+    // Sector starts at (theta - sectDeg/2), normalised to 0–360
+    const start = ((theta - sectDeg / 2) + 360) % 360;
+    return cmap[start] || `${Math.round(start)}°`;
+  });
+
+  const maxVal = Math.max(...data.means);
+
+  const trace = {
+    type: 'barpolar',
+    r:    data.means,
+    theta: data.thetas,
+    width: data.thetas.map(() => sectDeg),
+    text:  labels,
+    customdata: data.counts,
+    hovertemplate:
+      '<b>%{text}</b><br>' +
+      'Gem. waarde: <b>%{r:.2f}</b><br>' +
+      'Aantal uren: %{customdata}<extra></extra>',
+    marker: {
+      color: data.means,
+      colorscale: [
+        [0,    '#162032'],
+        [0.15, '#1a4971'],
+        [0.35, '#2176ae'],
+        [0.55, '#57c4ad'],
+        [0.75, '#f0a500'],
+        [1,    '#e63946'],
+      ],
+      showscale: true,
+      colorbar: {
+        title: { text: compName, font: { color: '#8b949e', size: 10, family: 'DM Sans' } },
+        tickfont: { color: '#8b949e', size: 9 },
+        len: 0.55, thickness: 11, x: 1.04,
+        outlinecolor: '#30363d', outlinewidth: 1,
+      },
+      line: { color: '#0d1117', width: 0.8 }
+    }
+  };
+
+  const layout = {
+    paper_bgcolor: '#0d1117',
+    font: { family: 'DM Sans, sans-serif', color: '#8b949e', size: 11 },
+    polar: {
+      bgcolor: '#10161d',
+      radialaxis: {
+        visible: true,
+        tickfont: { color: '#6e7f8d', size: 9, family: 'Space Mono' },
+        gridcolor: '#1e2d3d',
+        linecolor: '#1e2d3d',
+        tickangle: -45,
+        range: [0, maxVal * 1.15 || 1],
+      },
+      angularaxis: {
+        tickfont: { color: '#c9d1d9', size: 11, family: 'Space Mono, monospace' },
+        gridcolor: '#1e2d3d',
+        linecolor: '#30363d',
+        direction: 'clockwise',
+        rotation: 90,
+        tickmode: 'array',
+        tickvals: data.thetas,
+        ticktext: labels,
+      },
+      hole: 0.04,
+    },
+    margin: { t: 10, b: 10, l: 20, r: 90 },
+    showlegend: false,
+  };
+
+  const config = {
+    responsive: true,
+    displayModeBar: true,
+    modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+    displaylogo: false,
+    toImageButtonOptions: {
+      format: 'png',
+      filename: `pollutieroos_${stn}_${comp}_${dateFrom}_${dateTo}`,
+      height: 700, width: 700, scale: 2
+    }
+  };
+
+  const el = document.getElementById('plotly-chart');
+  el.style.display = 'block';
+  Plotly.react('plotly-chart', [trace], layout, config);
+
+  document.getElementById('status').style.display = 'none';
+  document.getElementById('chart-title').textContent =
+    `${compName} · ${stName} (${stn}) · wind: ${windName} · ${dateFrom} – ${dateTo}`;
+
+  const pct = data.used + data.skipped > 0
+    ? Math.round(100 * data.used / (data.used + data.skipped)) : 0;
+  document.getElementById('wind-info').textContent =
+    `${data.used.toLocaleString('nl-NL')} uren gebruikt · ` +
+    `${data.skipped.toLocaleString('nl-NL')} weggelaten (windstil / ontbrekend) · dekking ${pct}%`;
+
+  // Dominant direction
+  const maxIdx = data.means.indexOf(maxVal);
+  document.getElementById('stat-box').innerHTML =
+    `Station: <strong>${stName}</strong><br>
+     Component: <strong class="accent">${compName}</strong><br>
+     Windstation: <strong>${windName}</strong><br>
+     Periode: <strong>${dateFrom}</strong> – <strong>${dateTo}</strong><br>
+     Uren gebruikt: <strong>${data.used.toLocaleString('nl-NL')}</strong><br>
+     Dominante richting: <strong class="accent">${labels[maxIdx]}</strong><br>
+     Gem. waarde (dom.): <strong>${maxVal.toFixed(2)}</strong>`;
+}
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function setStatus(msg) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.style.display = 'block';
+  document.getElementById('plotly-chart').style.display = 'none';
+  document.getElementById('wind-info').textContent = '';
+  document.getElementById('chart-title').textContent = '';
+}
+
+function showLoading(on) {
+  document.getElementById('loading').style.display  = on ? 'flex' : 'none';
+  document.getElementById('status').style.display   = on ? 'none' : 'block';
+  document.getElementById('btn-plot').disabled = on;
+}
+</script>
+</body>
+</html>
